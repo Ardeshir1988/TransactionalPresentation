@@ -6,14 +6,16 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.transaction.IllegalTransactionStateException
 
 @SpringBootTest
-class SampleServiceTest {
+class PropagationSampleServiceTest {
 
     @Autowired
     lateinit var productRepository: ProductRepository
+
     @Autowired
-    lateinit var sampleService: SampleService
+    lateinit var propagationSampleService: PropagationSampleService
 
     /**
      * define a same barcode for 2 different barcode
@@ -21,7 +23,7 @@ class SampleServiceTest {
     val barcode3 = "b3"
 
     @BeforeEach
-    fun clearDb(){
+    fun clearDb() {
         productRepository.deleteAll()
     }
 
@@ -44,7 +46,7 @@ class SampleServiceTest {
 
     @Test
     fun `test transactional when atomic operation is required`() {
-        sampleService.saveProductsAtomic(
+        propagationSampleService.saveProductsAtomic(
             listOf(
                 Product(name = "p1", price = 10, barcode = "b1"),
                 Product(name = "p2", price = 20, barcode = "b2")
@@ -53,21 +55,21 @@ class SampleServiceTest {
         Assertions.assertEquals(2, productRepository.findAll().size)
 
         runCatching {
-            sampleService.saveProductsAtomic(
+            propagationSampleService.saveProductsAtomic(
                 listOf(
                     Product(name = "p1", price = 30, barcode = barcode3),
                     Product(name = "p4", price = 40, barcode = barcode3)
                 )
             )
         }.onFailure {
-            Assertions.assertEquals(DataIntegrityViolationException::class.java,it::class.java)
+            Assertions.assertEquals(DataIntegrityViolationException::class.java, it::class.java)
         }
         Assertions.assertEquals(2, productRepository.findAll().size)
     }
 
     @Test
     fun `test transactional when non-atomic operation is required`() {
-        sampleService.saveProductsAtomic(
+        propagationSampleService.saveProductsAtomic(
             listOf(
                 Product(name = "p1", price = 10, barcode = "b1"),
                 Product(name = "p2", price = 20, barcode = "b2")
@@ -76,15 +78,35 @@ class SampleServiceTest {
         Assertions.assertEquals(2, productRepository.findAll().size)
 
         runCatching {
-            sampleService.saveProductsNonAtomic(
+            propagationSampleService.saveProductsNonAtomic(
                 listOf(
                     Product(name = "p1", price = 30, barcode = barcode3),
                     Product(name = "p4", price = 40, barcode = barcode3)
                 )
             )
         }.onFailure {
-            Assertions.assertEquals(DataIntegrityViolationException::class.java,it::class.java)
+            Assertions.assertEquals(DataIntegrityViolationException::class.java, it::class.java)
         }
         Assertions.assertEquals(3, productRepository.findAll().size)
+    }
+
+    @Test
+    fun `test transactional when never operation is required`() {
+        runCatching {
+            propagationSampleService.saveProductsTransactionIsMandatory(
+                listOf(
+                    Product(name = "p1", price = 30, barcode = "b1")
+                )
+            )
+        }.onFailure {
+            Assertions.assertEquals(IllegalTransactionStateException::class.java, it::class.java)
+        }
+
+        propagationSampleService.saveProductsTransactionIsMandatoryWithNewTransaction(
+            listOf(
+                Product(name = "p1", price = 30, barcode = "b1")
+            )
+        )
+        Assertions.assertEquals("b1", productRepository.findAll()[0].barcode)
     }
 }
